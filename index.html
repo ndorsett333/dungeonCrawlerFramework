@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dungeon Crawler Framework</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <section id="main-menu-screen" class="screen active">
+      <h1>Dungeon Crawler Framework</h1>
+      <p class="subtitle">Theme-neutral first-person dungeon crawler base</p>
+      <nav class="menu-list" data-menu="main">
+        <button data-action="new-game">New Game</button>
+        <button id="continue-button" data-action="continue">Continue</button>
+        <button data-action="options">Options</button>
+      </nav>
+    </section>
+
+    <section id="options-screen" class="screen">
+      <h2>Options</h2>
+      <p>Placeholder options screen. Add audio, controls, and accessibility settings here.</p>
+      <button data-action="back-to-main">Back</button>
+    </section>
+
+    <section id="game-screen" class="screen">
+      <div id="hud">
+        <div id="hud-left">
+          <span id="hud-hp">HP: 0 / 0</span>
+          <span id="hud-mp">MP: 0 / 0</span>
+          <span id="hud-gold">Gold: 0</span>
+        </div>
+        <div id="hud-right">
+          <span id="hud-compass">Dir: N</span>
+          <span id="hud-floor">Floor: 1</span>
+          <button id="open-menu-button" type="button">Menu</button>
+        </div>
+      </div>
+
+      <div id="viewport-wrap">
+        <canvas id="dungeon-canvas" width="800" height="450" aria-label="Dungeon View"></canvas>
+        <canvas id="minimap-canvas" width="160" height="160" aria-label="Minimap"></canvas>
+      </div>
+      <div id="message-log" aria-live="polite"></div>
+    </section>
+
+    <section id="battle-screen" class="screen">
+      <h2>Battle</h2>
+      <div id="battle-layout">
+        <div id="enemy-panel">
+          <div id="enemy-sprite" aria-hidden="true"></div>
+          <h3 id="enemy-name">Enemy</h3>
+          <div class="bar-wrap">
+            <div id="enemy-hp-bar" class="bar"></div>
+          </div>
+          <p id="enemy-hp-text">HP: 0 / 0</p>
+        </div>
+
+        <div id="battle-right">
+          <p id="battle-player-stats">HP: 0 / 0 | MP: 0 / 0</p>
+          <p id="battle-message">A wild enemy appears.</p>
+
+          <div id="battle-actions" class="menu-list" data-menu="battle-actions">
+            <button data-battle-action="attack">Attack</button>
+            <button data-battle-action="magic">Magic</button>
+            <button data-battle-action="item">Item</button>
+            <button data-battle-action="run">Run</button>
+          </div>
+
+          <div id="magic-menu" class="sub-menu hidden" data-menu="magic">
+            <button data-spell="spellA">Spell A (4 MP)</button>
+            <button data-spell="spellB">Spell B (6 MP)</button>
+            <button data-spell="spellC">Spell C (8 MP)</button>
+            <button data-submenu-close="magic">Back</button>
+          </div>
+
+          <div id="battle-item-menu" class="sub-menu hidden" data-menu="battle-items">
+            <div id="battle-item-list"></div>
+            <button data-submenu-close="items">Back</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="ingame-menu-screen" class="screen overlay">
+      <div class="overlay-panel">
+        <h2>In-Game Menu</h2>
+        <div class="menu-tabs" data-menu="ingame-tabs">
+          <button class="menu-tab active" data-tab="inventory">Inventory</button>
+          <button class="menu-tab" data-tab="stats">Stats</button>
+          <button class="menu-tab" data-tab="magic">Magic</button>
+          <button class="menu-tab" data-tab="skills">Skills</button>
+        </div>
+
+        <div id="tab-inventory" class="tab-content active"></div>
+        <div id="tab-stats" class="tab-content"></div>
+        <div id="tab-magic" class="tab-content">
+          <p>Magic menu placeholder.</p>
+        </div>
+        <div id="tab-skills" class="tab-content">
+          <p>Skills menu placeholder.</p>
+        </div>
+
+        <div class="menu-footer" data-menu="ingame-actions">
+          <button data-ingame-action="save">Save Game</button>
+          <button data-ingame-action="quit">Quit to Main Menu</button>
+          <button data-ingame-action="close">Close</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="gameover-screen" class="screen">
+      <h2>Game Over</h2>
+      <p>Your party has fallen in the dungeon.</p>
+      <button data-action="gameover-main">Return to Main Menu</button>
+    </section>
+  </div>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
