@@ -247,8 +247,34 @@ function renderMinimap() {
   }
 
   ctx.fillStyle = "#f0c45d";
+  const px = (player.x + 0.5) * tileW;
+  const py = (player.y + 0.5) * tileH;
+  const radius = Math.max(2, tileW * 0.2);
   ctx.beginPath();
-  ctx.arc((player.x + 0.5) * tileW, (player.y + 0.5) * tileH, Math.max(2, tileW * 0.2), 0, Math.PI * 2);
+  ctx.arc(px, py, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  const dir = DIRS[player.facing] || DIRS.N;
+  const arrowLen = Math.max(6, tileW * 0.5);
+  const tipX = px + dir.x * arrowLen;
+  const tipY = py + dir.y * arrowLen;
+
+  ctx.strokeStyle = "#f5efe0";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+
+  const perpX = -dir.y;
+  const perpY = dir.x;
+  const headSize = Math.max(3, tileW * 0.18);
+  ctx.fillStyle = "#f5efe0";
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - dir.x * headSize - perpX * headSize, tipY - dir.y * headSize - perpY * headSize);
+  ctx.lineTo(tipX - dir.x * headSize + perpX * headSize, tipY - dir.y * headSize + perpY * headSize);
+  ctx.closePath();
   ctx.fill();
 }
 
@@ -958,7 +984,15 @@ function handleInteraction() {
 function tryStep(moveFn) {
   const result = moveFn();
   if (!result.moved) {
-    appendMessage("Blocked.");
+    if (result.tile === TILE.DOOR_A) {
+      appendMessage("Blocked by a locked door.");
+    } else if (result.tile === TILE.CHEST) {
+      appendMessage("Blocked by a chest.");
+    } else if (result.tile === TILE.WALL) {
+      appendMessage("Blocked by a wall.");
+    } else {
+      appendMessage("Blocked.");
+    }
     return;
   }
 

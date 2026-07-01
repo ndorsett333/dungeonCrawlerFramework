@@ -209,6 +209,26 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 24%, var(--panel-2));
 }
 
+#ingame-menu-screen .menu-tabs {
+  margin-bottom: 12px;
+}
+
+#ingame-menu-screen .tab-content {
+  margin-bottom: 14px;
+}
+
+#ingame-menu-screen .inventory-list {
+  gap: 10px;
+}
+
+#ingame-menu-screen .inventory-list button {
+  padding-block: 12px;
+}
+
+#ingame-menu-screen .menu-footer {
+  margin-top: 6px;
+}
+
 .inventory-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
