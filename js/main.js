@@ -108,6 +108,15 @@ let minimapCtx = null;
 let battleState = null;
 let menuCallbacks = null;
 
+const TURN_TRANSITION_DURATION_MS = 170;
+const turnTransition = {
+  active: false,
+  direction: "right",
+  startMs: 0,
+  oldFrame: null,
+  newFrame: null
+};
+
 function createDefaultPlayer() {
   return {
     name: "Adventurer",
@@ -323,6 +332,53 @@ function drawTexturedRect(ctx, textureKey, x, y, w, h, fallbackColor) {
   ctx.fillRect(x, y, w, h);
 }
 
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function drawWarpedQuadTexture(ctx, textureKey, quad, fallbackColor) {
+  const img = textureImages[textureKey];
+  const hasTexture = Boolean(img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
+
+  if (!hasTexture) {
+    ctx.fillStyle = fallbackColor;
+    ctx.beginPath();
+    ctx.moveTo(quad.tl.x, quad.tl.y);
+    ctx.lineTo(quad.tr.x, quad.tr.y);
+    ctx.lineTo(quad.br.x, quad.br.y);
+    ctx.lineTo(quad.bl.x, quad.bl.y);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  // Approximate perspective by drawing many narrow texture strips.
+  const slices = 36;
+  for (let i = 0; i < slices; i += 1) {
+    const t0 = i / slices;
+    const t1 = (i + 1) / slices;
+
+    const top0 = { x: lerp(quad.tl.x, quad.tr.x, t0), y: lerp(quad.tl.y, quad.tr.y, t0) };
+    const top1 = { x: lerp(quad.tl.x, quad.tr.x, t1), y: lerp(quad.tl.y, quad.tr.y, t1) };
+    const bot0 = { x: lerp(quad.bl.x, quad.br.x, t0), y: lerp(quad.bl.y, quad.br.y, t0) };
+
+    const sx = Math.floor(t0 * img.naturalWidth);
+    const sw = Math.max(1, Math.ceil((t1 - t0) * img.naturalWidth));
+
+    ctx.save();
+    ctx.setTransform(
+      top1.x - top0.x,
+      top1.y - top0.y,
+      bot0.x - top0.x,
+      bot0.y - top0.y,
+      top0.x,
+      top0.y
+    );
+    ctx.drawImage(img, sx, 0, sw, img.naturalHeight, 0, 0, 1, 1);
+    ctx.restore();
+  }
+}
+
 function drawCenteredWallSlice(ctx, depth, textureKey, fallbackColor) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
@@ -344,21 +400,53 @@ function drawCenteredWallSlice(ctx, depth, textureKey, fallbackColor) {
   ctx.strokeRect(x, y, panelW, panelH);
 }
 
-function drawSideWallSlice(ctx, depthIndex, side, solid) {
+function drawSideWallSlice(ctx, depth, side, solid) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
-  const far = depthIndex === 0;
-  const near = depthIndex === 2;
-  const paneW = near ? width * 0.2 : far ? width * 0.1 : width * 0.15;
-  const paneH = near ? height * 0.75 : far ? height * 0.4 : height * 0.58;
-  const y = (height - paneH) / 2 + (near ? 16 : far ? 40 : 28);
-  const x = side === "left" ? 0 : width - paneW;
+  const shapeByDepth = {
+    1: { innerX: 0.40, top: 0.27, bottom: 0.79, slant: 0.11 },
+    2: { innerX: 0.31, top: 0.23, bottom: 0.75, slant: 0.08 },
+    3: { innerX: 0.23, top: 0.19, bottom: 0.69, slant: 0.06 }
+  };
+  const shape = shapeByDepth[depth] || shapeByDepth[3];
+
+  const innerX = width * shape.innerX;
+  const topY = height * shape.top;
+  const bottomY = height * shape.bottom;
+  const slant = height * shape.slant;
 
   if (solid) {
-    drawTexturedRect(ctx, "wallSide", x, y, paneW, paneH, "#59657d");
+    const quad = side === "left"
+      ? {
+        tl: { x: 0, y: topY - slant },
+        tr: { x: innerX, y: topY },
+        br: { x: innerX, y: bottomY },
+        bl: { x: 0, y: bottomY + slant }
+      }
+      : {
+        tl: { x: width - innerX, y: topY },
+        tr: { x: width, y: topY - slant },
+        br: { x: width, y: bottomY + slant },
+        bl: { x: width - innerX, y: bottomY }
+      };
+
+    drawWarpedQuadTexture(ctx, "wallNear", quad, "#59657d");
   } else {
     ctx.fillStyle = "rgba(89,101,125,0.18)";
-    ctx.fillRect(x, y, paneW, paneH);
+    ctx.beginPath();
+    if (side === "left") {
+      ctx.moveTo(0, topY - slant);
+      ctx.lineTo(innerX, topY);
+      ctx.lineTo(innerX, bottomY);
+      ctx.lineTo(0, bottomY + slant);
+    } else {
+      ctx.moveTo(width - innerX, topY);
+      ctx.lineTo(width, topY - slant);
+      ctx.lineTo(width, bottomY + slant);
+      ctx.lineTo(width - innerX, bottomY);
+    }
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -387,6 +475,28 @@ function renderFirstPerson() {
 
   const furthestDepth = occlusionDepth ?? 3;
 
+  // Draw one dominant side wall per side to avoid stacked duplicates.
+  let leftWallDepth = null;
+  let rightWallDepth = null;
+  for (let depth = 1; depth <= furthestDepth; depth += 1) {
+    const px = player.x + forward.x * depth;
+    const py = player.y + forward.y * depth;
+
+    if (leftWallDepth === null) {
+      const sideLeftTile = getTile(player.floor, px + left.x, py + left.y);
+      if (isOpaque(sideLeftTile)) {
+        leftWallDepth = depth;
+      }
+    }
+
+    if (rightWallDepth === null) {
+      const sideRightTile = getTile(player.floor, px - left.x, py - left.y);
+      if (isOpaque(sideRightTile)) {
+        rightWallDepth = depth;
+      }
+    }
+  }
+
   for (let depth = furthestDepth; depth >= 1; depth -= 1) {
     const px = player.x + forward.x * depth;
     const py = player.y + forward.y * depth;
@@ -394,8 +504,12 @@ function renderFirstPerson() {
     const sideLeftTile = getTile(player.floor, px + left.x, py + left.y);
     const sideRightTile = getTile(player.floor, px - left.x, py - left.y);
 
-    drawSideWallSlice(ctx, depth - 1, "left", isOpaque(sideLeftTile));
-    drawSideWallSlice(ctx, depth - 1, "right", isOpaque(sideRightTile));
+    if (leftWallDepth === depth) {
+      drawSideWallSlice(ctx, depth, "left", isOpaque(sideLeftTile));
+    }
+    if (rightWallDepth === depth) {
+      drawSideWallSlice(ctx, depth, "right", isOpaque(sideRightTile));
+    }
 
     if (isOpaque(centerTile)) {
       const wallTextureKey = depth === 1 ? "wallNear" : depth === 2 ? "wallMid" : "wallFar";
@@ -405,6 +519,79 @@ function renderFirstPerson() {
       drawCenteredWallSlice(ctx, depth, "stairs", "#4f6c9e");
     }
   }
+}
+
+function snapshotDungeonFrame() {
+  const canvas = dungeonCtx.canvas;
+  const frame = document.createElement("canvas");
+  frame.width = canvas.width;
+  frame.height = canvas.height;
+  const frameCtx = frame.getContext("2d");
+  frameCtx.drawImage(canvas, 0, 0);
+  return frame;
+}
+
+function beginTurnTransition(direction) {
+  if (turnTransition.active) {
+    return;
+  }
+
+  const oldFrame = snapshotDungeonFrame();
+
+  if (direction === "left") {
+    turnPlayerLeft();
+  } else {
+    turnPlayerRight();
+  }
+  updateHUD();
+
+  renderFirstPerson();
+  const newFrame = snapshotDungeonFrame();
+
+  dungeonCtx.clearRect(0, 0, dungeonCtx.canvas.width, dungeonCtx.canvas.height);
+  dungeonCtx.drawImage(oldFrame, 0, 0);
+
+  turnTransition.active = true;
+  turnTransition.direction = direction;
+  turnTransition.startMs = performance.now();
+  turnTransition.oldFrame = oldFrame;
+  turnTransition.newFrame = newFrame;
+}
+
+function renderTurnTransitionFrame(nowMs) {
+  if (!turnTransition.active) {
+    return false;
+  }
+
+  const canvas = dungeonCtx.canvas;
+  const width = canvas.width;
+  const height = canvas.height;
+
+  const elapsed = nowMs - turnTransition.startMs;
+  const rawT = Math.max(0, Math.min(1, elapsed / TURN_TRANSITION_DURATION_MS));
+  const t = rawT * rawT * (3 - 2 * rawT);
+
+  let oldX = 0;
+  let newX = 0;
+  if (turnTransition.direction === "right") {
+    oldX = -t * width;
+    newX = width - t * width;
+  } else {
+    oldX = t * width;
+    newX = -width + t * width;
+  }
+
+  dungeonCtx.clearRect(0, 0, width, height);
+  dungeonCtx.drawImage(turnTransition.oldFrame, oldX, 0);
+  dungeonCtx.drawImage(turnTransition.newFrame, newX, 0);
+
+  if (rawT >= 1) {
+    turnTransition.active = false;
+    turnTransition.oldFrame = null;
+    turnTransition.newFrame = null;
+  }
+
+  return true;
 }
 
 function turnPlayerLeft() {
@@ -1060,13 +1247,11 @@ function tryStep(moveFn) {
 function handleDungeonInput(event) {
   const k = event.key.toLowerCase();
   if (event.key === "ArrowLeft" || k === "a") {
-    turnPlayerLeft();
-    updateHUD();
+    beginTurnTransition("left");
     return true;
   }
   if (event.key === "ArrowRight" || k === "d") {
-    turnPlayerRight();
-    updateHUD();
+    beginTurnTransition("right");
     return true;
   }
   if (event.key === "ArrowUp" || k === "w") {
@@ -1173,7 +1358,9 @@ function setupKeyboardNavigation() {
 
 function renderLoop() {
   if (gameState === STATE.DUNGEON || gameState === STATE.MENU) {
-    renderFirstPerson();
+    if (!renderTurnTransitionFrame(performance.now())) {
+      renderFirstPerson();
+    }
     renderMinimap();
   }
   requestAnimationFrame(renderLoop);
