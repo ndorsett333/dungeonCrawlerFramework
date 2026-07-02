@@ -79,6 +79,19 @@ const LEVEL_EXP_MULTIPLIER = 10;
 const INVENTORY_MAX_SLOTS = 16;
 const SAVE_KEY = "dungeonCrawlerFrameworkSave";
 
+// Swap these file paths to reskin dungeon surfaces.
+const TEXTURE_PATHS = {
+  ceiling: "assets/textures/ceiling.png",
+  floor: "assets/textures/floor.png",
+  wallFar: "assets/textures/wall-far.png",
+  wallMid: "assets/textures/wall-mid.png",
+  wallNear: "assets/textures/wall-near.png",
+  wallSide: "assets/textures/wall-side.png",
+  stairs: "assets/textures/stairs.png"
+};
+
+const textureImages = {};
+
 const STATE = {
   MAIN_MENU: "MAIN_MENU",
   DUNGEON: "DUNGEON",
@@ -290,18 +303,43 @@ function getLeftDelta() {
   return DIRS[TURN_LEFT[player.facing]];
 }
 
-function drawCenteredWallSlice(ctx, depthIndex, color) {
+function preloadTextures() {
+  Object.entries(TEXTURE_PATHS).forEach(([key, path]) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = path;
+    textureImages[key] = img;
+  });
+}
+
+function drawTexturedRect(ctx, textureKey, x, y, w, h, fallbackColor) {
+  const img = textureImages[textureKey];
+  if (img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    ctx.drawImage(img, x, y, w, h);
+    return;
+  }
+
+  ctx.fillStyle = fallbackColor;
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawCenteredWallSlice(ctx, depth, textureKey, fallbackColor) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
-  const scales = [0.32, 0.5, 0.74];
-  const offsets = [0.06, 0.04, 0.02];
-  const scale = scales[depthIndex];
-  const panelW = width * scale;
-  const panelH = height * (scale + 0.08);
+
+  // Depth 1 is nearest, so it should be the largest wall panel.
+  const sizeByDepth = {
+    1: { w: 1.06, h: 1.06, yOffset: 0.0 },
+    2: { w: 0.74, h: 0.78, yOffset: 0.02 },
+    3: { w: 0.5, h: 0.56, yOffset: 0.04 }
+  };
+  const size = sizeByDepth[depth] || sizeByDepth[3];
+  const panelW = width * size.w;
+  const panelH = height * size.h;
   const x = (width - panelW) / 2;
-  const y = (height - panelH) / 2 + height * offsets[depthIndex];
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, panelW, panelH);
+  const y = (height - panelH) / 2 + height * size.yOffset;
+
+  drawTexturedRect(ctx, textureKey, x, y, panelW, panelH, fallbackColor);
   ctx.strokeStyle = "rgba(0,0,0,0.4)";
   ctx.strokeRect(x, y, panelW, panelH);
 }
@@ -315,8 +353,13 @@ function drawSideWallSlice(ctx, depthIndex, side, solid) {
   const paneH = near ? height * 0.75 : far ? height * 0.4 : height * 0.58;
   const y = (height - paneH) / 2 + (near ? 16 : far ? 40 : 28);
   const x = side === "left" ? 0 : width - paneW;
-  ctx.fillStyle = solid ? "#59657d" : "rgba(89,101,125,0.18)";
-  ctx.fillRect(x, y, paneW, paneH);
+
+  if (solid) {
+    drawTexturedRect(ctx, "wallSide", x, y, paneW, paneH, "#59657d");
+  } else {
+    ctx.fillStyle = "rgba(89,101,125,0.18)";
+    ctx.fillRect(x, y, paneW, paneH);
+  }
 }
 
 function renderFirstPerson() {
@@ -325,15 +368,26 @@ function renderFirstPerson() {
   const height = ctx.canvas.height;
 
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#566077";
-  ctx.fillRect(0, 0, width, height / 2);
-  ctx.fillStyle = "#2a3446";
-  ctx.fillRect(0, height / 2, width, height / 2);
+  drawTexturedRect(ctx, "ceiling", 0, 0, width, height / 2, "#566077");
+  drawTexturedRect(ctx, "floor", 0, height / 2, width, height / 2, "#2a3446");
 
   const forward = getForwardDelta();
   const left = getLeftDelta();
 
-  for (let depth = 3; depth >= 1; depth -= 1) {
+  // Stop rendering deeper slices once a front wall is found.
+  let occlusionDepth = null;
+  for (let depth = 1; depth <= 3; depth += 1) {
+    const cx = player.x + forward.x * depth;
+    const cy = player.y + forward.y * depth;
+    if (isOpaque(getTile(player.floor, cx, cy))) {
+      occlusionDepth = depth;
+      break;
+    }
+  }
+
+  const furthestDepth = occlusionDepth ?? 3;
+
+  for (let depth = furthestDepth; depth >= 1; depth -= 1) {
     const px = player.x + forward.x * depth;
     const py = player.y + forward.y * depth;
     const centerTile = getTile(player.floor, px, py);
@@ -344,10 +398,11 @@ function renderFirstPerson() {
     drawSideWallSlice(ctx, depth - 1, "right", isOpaque(sideRightTile));
 
     if (isOpaque(centerTile)) {
-      const tone = depth === 1 ? "#8b7760" : depth === 2 ? "#6e5f4d" : "#53483d";
-      drawCenteredWallSlice(ctx, depth - 1, tone);
+      const wallTextureKey = depth === 1 ? "wallNear" : depth === 2 ? "wallMid" : "wallFar";
+      const fallbackTone = depth === 1 ? "#8b7760" : depth === 2 ? "#6e5f4d" : "#53483d";
+      drawCenteredWallSlice(ctx, depth, wallTextureKey, fallbackTone);
     } else if (centerTile === TILE.STAIRS && depth === 1) {
-      drawCenteredWallSlice(ctx, depth - 1, "#4f6c9e");
+      drawCenteredWallSlice(ctx, depth, "stairs", "#4f6c9e");
     }
   }
 }
@@ -1127,6 +1182,7 @@ function renderLoop() {
 function init() {
   dungeonCtx = document.getElementById("dungeon-canvas").getContext("2d");
   minimapCtx = document.getElementById("minimap-canvas").getContext("2d");
+  preloadTextures();
 
   setupMainMenu();
   setupMenuCallbacks();
